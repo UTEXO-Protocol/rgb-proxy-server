@@ -1,3 +1,4 @@
+import rgblib from "@utexo/rgb-lib";
 import DatabaseConstructor, { type Database } from "better-sqlite3";
 import { Application, Request, Response } from "express";
 import httpContext from "express-http-context";
@@ -61,6 +62,7 @@ interface ConsignmentGetRes {
   consignment: string;
   txid: string;
   vout?: number;
+  validated?: boolean;
 }
 
 interface Consignment {
@@ -257,11 +259,15 @@ jsonRpcServer.addMethod(
     const fileBuffer = fs.readFileSync(
       path.join(consignmentDir, consignment.filename)
     );
-    return {
+    const res: ConsignmentGetRes = {
       consignment: fileBuffer.toString("base64"),
       txid: consignment.txid,
       vout: consignment.vout,
     };
+    if (consignment.ack !== undefined) {
+      res.validated = consignment.ack;
+    }
+    return res;
   }
 );
 
@@ -288,11 +294,36 @@ jsonRpcServer.addMethod(
         }
       }
       fs.renameSync(uploadedFile, path.join(consignmentDir, fileHash));
+
+      let ackValue: number | null = null;
+      const electrumUrl = process.env.ELECTRUM_URL;
+      if (electrumUrl) {
+        const network = process.env.BITCOIN_NETWORK || "Mainnet";
+        const filePath = path.join(consignmentDir, fileHash);
+        try {
+          const result = rgblib.validateConsignment(
+            filePath,
+            electrumUrl,
+            network
+          );
+          if (result.error === "resolver") {
+            logger.warning(
+              `Consignment validation resolver error: ${result.details}`
+            );
+          } else {
+            ackValue = result.valid ? 1 : 0;
+            logger.info(`Consignment validation result: valid=${result.valid}`);
+          }
+        } catch (e) {
+          logger.warning(`Consignment validation failed: ${e}`);
+        }
+      }
+
       const insert = db.prepare(
         `INSERT INTO consignments (recipient_id, filename, txid, vout, ack)
          VALUES (?, ?, ?, ?, ?)`
       );
-      insert.run(recipientID, fileHash, txid, vout, null);
+      insert.run(recipientID, fileHash, txid, vout, ackValue);
       return true;
     } catch (e: unknown) {
       if (file) {

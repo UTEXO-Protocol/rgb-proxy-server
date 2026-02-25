@@ -219,4 +219,161 @@ describe("POST /json-rpc", () => {
     expect(res.body.id).toStrictEqual(reqID);
     expect(res.body.result.protocol_version).toStrictEqual("0.2");
   });
+
+  describe("consignment validation", () => {
+    afterEach(() => {
+      delete process.env.ELECTRUM_URL;
+      delete process.env.MOCK_VALIDATION_RESULT;
+      delete process.env.MOCK_VALIDATION_THROW;
+    });
+
+    async function postConsignment(recipientID: string) {
+      const consignmentPath = path.join(tempDir, `val-${recipientID}`);
+      fs.writeFileSync(consignmentPath, `consignment data ${recipientID}`);
+      const res = await request(app)
+        .post("/json-rpc")
+        .set("Content-type", contentTypeForm)
+        .field("jsonrpc", jsonrpcVersion)
+        .field("id", "1")
+        .field("method", "consignment.post")
+        .field("params[recipient_id]", recipientID)
+        .field("params[txid]", "validationTxid")
+        .attach("file", fs.createReadStream(consignmentPath));
+      return res;
+    }
+
+    async function getAck(recipientID: string) {
+      const res = await request(app)
+        .post("/json-rpc")
+        .send({
+          jsonrpc: jsonrpcVersion,
+          id: "2",
+          method: "ack.get",
+          params: { recipient_id: recipientID },
+        })
+        .expect(okStatus);
+      return res;
+    }
+
+    async function getConsignment(recipientID: string) {
+      const res = await request(app)
+        .post("/json-rpc")
+        .send({
+          jsonrpc: jsonrpcVersion,
+          id: "3",
+          method: "consignment.get",
+          params: { recipient_id: recipientID },
+        })
+        .expect(okStatus);
+      return res;
+    }
+
+    it("valid consignment is auto-ACKed", async () => {
+      process.env.ELECTRUM_URL = "tcp://localhost:50001";
+      process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
+        valid: true,
+        warnings: [],
+      });
+      const recipientID = "valTest.valid";
+
+      const postRes = await postConsignment(recipientID);
+      expect(postRes.body.result).toStrictEqual(true);
+
+      const ackRes = await getAck(recipientID);
+      expect(ackRes.body.result).toStrictEqual(true);
+
+      const getRes = await getConsignment(recipientID);
+      expect(getRes.body.result.validated).toStrictEqual(true);
+    });
+
+    it("invalid consignment is auto-NACKed", async () => {
+      process.env.ELECTRUM_URL = "tcp://localhost:50001";
+      process.env.MOCK_VALIDATION_RESULT = JSON.stringify({ valid: false });
+      const recipientID = "valTest.invalid";
+
+      const postRes = await postConsignment(recipientID);
+      expect(postRes.body.result).toStrictEqual(true);
+
+      const ackRes = await getAck(recipientID);
+      expect(ackRes.body.result).toStrictEqual(false);
+
+      const getRes = await getConsignment(recipientID);
+      expect(getRes.body.result.validated).toStrictEqual(false);
+    });
+
+    it("resolver error falls back to relay-only", async () => {
+      process.env.ELECTRUM_URL = "tcp://localhost:50001";
+      process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
+        valid: false,
+        error: "resolver",
+        details: "connection refused",
+      });
+      const recipientID = "valTest.resolver";
+
+      const postRes = await postConsignment(recipientID);
+      expect(postRes.body.result).toStrictEqual(true);
+
+      const ackRes = await getAck(recipientID);
+      expect(ackRes.body.result).toBeNull();
+
+      const getRes = await getConsignment(recipientID);
+      expect(getRes.body.result).not.toHaveProperty("validated");
+    });
+
+    it("validation exception falls back to relay-only", async () => {
+      process.env.ELECTRUM_URL = "tcp://localhost:50001";
+      process.env.MOCK_VALIDATION_THROW = "native addon crash";
+      const recipientID = "valTest.throw";
+
+      const postRes = await postConsignment(recipientID);
+      expect(postRes.body.result).toStrictEqual(true);
+
+      const ackRes = await getAck(recipientID);
+      expect(ackRes.body.result).toBeNull();
+
+      const getRes = await getConsignment(recipientID);
+      expect(getRes.body.result).not.toHaveProperty("validated");
+    });
+
+    it("no ELECTRUM_URL skips validation", async () => {
+      delete process.env.ELECTRUM_URL;
+      const recipientID = "valTest.noElectrum";
+
+      const postRes = await postConsignment(recipientID);
+      expect(postRes.body.result).toStrictEqual(true);
+
+      const ackRes = await getAck(recipientID);
+      expect(ackRes.body.result).toBeNull();
+
+      const getRes = await getConsignment(recipientID);
+      expect(getRes.body.result).not.toHaveProperty("validated");
+    });
+
+    it("auto-ACK cannot be changed by receiver", async () => {
+      process.env.ELECTRUM_URL = "tcp://localhost:50001";
+      process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
+        valid: true,
+        warnings: [],
+      });
+      const recipientID = "valTest.cannotChange";
+
+      const postRes = await postConsignment(recipientID);
+      expect(postRes.body.result).toStrictEqual(true);
+
+      const ackRes = await getAck(recipientID);
+      expect(ackRes.body.result).toStrictEqual(true);
+
+      const changeRes = await request(app)
+        .post("/json-rpc")
+        .send({
+          jsonrpc: jsonrpcVersion,
+          id: "4",
+          method: "ack.post",
+          params: { recipient_id: recipientID, ack: false },
+        })
+        .expect(okStatus);
+      expect(changeRes.body.error).toBeDefined();
+      expect(changeRes.body.error.message).toStrictEqual("Cannot change ACK");
+    });
+  });
 });
