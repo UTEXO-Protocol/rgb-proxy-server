@@ -35,6 +35,33 @@ simply using a different server provider or by self-hosting an instance.
 This project was originally implemented in
 [grunch/rgb-proxy-server](https://github.com/grunch/rgb-proxy-server).
 
+## Offline Receiver: Server-Side Consignment Validation for RGB Proxy Server
+
+This opt-in feature adds **optional server-side consignment validation** using `@utexo/rgb-lib`: the same validation library that wallets use. When enabled, the proxy validates consignments at upload time and automatically sets the ACK/NACK, removing the need for the receiver to be online during the critical validation window.
+
+The receiver can retrieve the consignment and import it at their convenience; the transfer is not blocked by their availability.
+
+### Why?
+
+- **Fire-and-forget transfers.** Senders complete a transfer without waiting for the receiver. The proxy validates and ACKs on their behalf, allowing the sender to broadcast immediately. This makes RGB UX comparable to on-chain Bitcoin: send and done.
+- **Mobile and intermittent connectivity.** Mobile wallets are frequently offline. Users can receive RGB assets even if their phone is off during the transfer; they import the consignment next time they open the app.
+- **Asynchronous workflows.** Batch payments, scheduled distributions, airdrops, point-of-sale flows where the merchant settles later; none require the receiver to interact during the transfer.
+- **Reduced transfer failure rates.** In the relay-only model, transfers fail or time out if the receiver doesn't respond. Server-side validation eliminates this class of failures.
+- **Graceful degradation.** If the Electrum indexer is unreachable or the validation library throws, the proxy falls back to relay-only mode. The transfer is never blocked; it just requires the receiver to validate manually, same as before.
+
+### Trust Assumptions
+
+The relay-only proxy is **trustless**: a dumb relay that can only censor, never forge or validate. Server-side validation changes the trust model.
+
+Relay-only proxy:** The proxy is untrusted. It can censor or delay, but cannot forge consignments, fake ACKs, or move funds. The receiver validates with their own node and indexer. Even a malicious proxy cannot approve an invalid transfer.
+
+**Offline receiver (server-side validation):** The proxy becomes **semi-trusted**. New trust assumptions:
+
+- **Receiver trusts the proxy to validate correctly.** The receiver is trusting that the proxy runs the correct validation library, that its Electrum server is honest and synced, and that the operator is not running modified code that auto-ACKs everything.
+- **Receiver trusts the proxy's Electrum indexer.** Validation requires checking Bitcoin state. A compromised indexer could feed false data, causing the proxy to ACK an invalid consignment.
+- **Sender trusts the proxy's ACK.** With server-side validation, the ACK comes from the proxy, not the receiver. The sender trusts it means the consignment is genuinely valid.
+- **The receiver can no longer override a server-validated ACK.** Once the proxy auto-ACKs, the ack field is immutable. If the receiver later disagrees, they cannot change it.
+
 ## Running the app
 
 ### Locally
