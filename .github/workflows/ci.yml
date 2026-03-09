@@ -1,9 +1,12 @@
-name: lint
+name: ci
 
-on: push
+on:
+  push:
+  pull_request:
+    branches: [utexo-master]
 
 jobs:
-  lint:
+  ci:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,3 +29,6 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Test
+        run: npm run test
