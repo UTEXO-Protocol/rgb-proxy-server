@@ -1,0 +1,55 @@
+name: "CD RGB Proxy Server"
+
+env:
+  DOCKER_VERSION: ${{ github.sha }}
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types:
+      - completed
+    branches:
+      - "utexo-master"
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checks-out
+        uses: actions/checkout@v4
+        with:
+          ref: utexo-master
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create config
+        id: create-json-1
+        uses: jsdaniell/create-json@v1.2.3
+        with:
+          name: ".env"
+          json: ${{ secrets.CONFIG }}
+
+      - name: Build & push docker images
+        run: make docker VERSION=${{ env.DOCKER_VERSION }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: ${{ secrets.DEPLOY_SCRIPT }}
