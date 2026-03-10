@@ -44,8 +44,8 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "@utexo/rgb-lib": "^0.3.0-beta.13",
-    "@utexo/rgb-lib-linux-x64": "^0.3.0-beta.13",
+    "@utexo/rgb-lib": "^0.3.0-beta.11",
+    "@utexo/rgb-lib-linux-x64": "^0.3.0-beta.11",
     "better-sqlite3": "^11.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
