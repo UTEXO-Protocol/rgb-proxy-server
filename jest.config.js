@@ -8,6 +8,9 @@ module.exports = {
       },
     ],
   },
+  moduleNameMapper: {
+    "^@utexo/rgb-lib$": "<rootDir>/test/__mocks__/rgb-lib.js",
+  },
   testMatch: ["**/test/**/*.spec.(ts|js)"],
   testEnvironment: "node",
 };

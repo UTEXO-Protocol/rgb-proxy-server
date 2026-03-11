@@ -220,3 +220,185 @@ describe("POST /json-rpc", () => {
     expect(res.body.result.protocol_version).toStrictEqual("0.2");
   });
 });
+
+describe("consignment validation", () => {
+  // Helper to wait for the setImmediate validation callback to fire
+  const waitForValidation = () =>
+    new Promise((resolve) => setImmediate(resolve));
+
+  // Helper to poll until ack is set (non-null) or timeout
+  async function waitForAckSet(recipientID: string, timeoutMs = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await waitForValidation();
+      const res = await request(app)
+        .post("/json-rpc")
+        .send({
+          jsonrpc: jsonrpcVersion,
+          id: "poll",
+          method: "ack.get",
+          params: { recipient_id: recipientID },
+        })
+        .expect(okStatus);
+      if (res.body.result !== null && res.body.result !== undefined) {
+        return res.body.result;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(`Timeout waiting for ack on ${recipientID}`);
+  }
+
+  // Helper to post a consignment and get the ack
+  async function postConsignment(recipientID: string, content: string) {
+    const filePath = path.join(tempDir, `validation-${recipientID}`);
+    fs.writeFileSync(filePath, content);
+    const res = await request(app)
+      .post("/json-rpc")
+      .set("Content-type", contentTypeForm)
+      .field("jsonrpc", jsonrpcVersion)
+      .field("id", "1")
+      .field("method", "consignment.post")
+      .field("params[recipient_id]", recipientID)
+      .field("params[txid]", "validationTxid")
+      .attach("file", fs.createReadStream(filePath))
+      .expect(okStatus);
+    return res;
+  }
+
+  async function getAck(recipientID: string) {
+    await waitForValidation();
+    const res = await request(app)
+      .post("/json-rpc")
+      .send({
+        jsonrpc: jsonrpcVersion,
+        id: "2",
+        method: "ack.get",
+        params: { recipient_id: recipientID },
+      })
+      .expect(okStatus);
+    return res.body.result;
+  }
+
+  afterEach(() => {
+    delete process.env.INDEXER_URL;
+    delete process.env.BITCOIN_NETWORK;
+    delete process.env.MOCK_VALIDATION_RESULT;
+    delete process.env.MOCK_VALIDATION_THROW;
+  });
+
+  it("valid consignment should auto-ACK", async () => {
+    process.env.INDEXER_URL = "http://localhost:3002";
+    process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
+      valid: true,
+      failureReason: null,
+    });
+    const recipientID = "validation.valid";
+    const res = await postConsignment(recipientID, "valid consignment data");
+    expect(res.body.result).toStrictEqual(true);
+    const ack = await getAck(recipientID);
+    expect(ack).toStrictEqual(true);
+  });
+
+  it("invalid consignment should auto-NACK", async () => {
+    process.env.INDEXER_URL = "http://localhost:3002";
+    process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
+      valid: false,
+      failureReason: "invalid schema",
+    });
+    const recipientID = "validation.invalid";
+    const res = await postConsignment(recipientID, "invalid consignment data");
+    expect(res.body.result).toStrictEqual(true);
+    const ack = await waitForAckSet(recipientID);
+    expect(ack).toStrictEqual(false);
+  }, 20000);
+
+  it("resolver error should fall back to relay-only (ack stays null)", async () => {
+    process.env.INDEXER_URL = "http://localhost:3002";
+    process.env.MOCK_VALIDATION_THROW = "resolver connection refused";
+    const recipientID = "validation.resolver-error";
+    const res = await postConsignment(
+      recipientID,
+      "resolver error consignment"
+    );
+    expect(res.body.result).toStrictEqual(true);
+    // Wait for all retries to exhaust
+    await new Promise((resolve) => setTimeout(resolve, 12000));
+    const ack = await getAck(recipientID);
+    expect(ack).toBeNull();
+  }, 20000);
+
+  it("validation exception should fall back to relay-only (ack stays null)", async () => {
+    process.env.INDEXER_URL = "http://localhost:3002";
+    process.env.MOCK_VALIDATION_THROW = "unexpected internal error";
+    const recipientID = "validation.exception";
+    const res = await postConsignment(
+      recipientID,
+      "exception consignment data"
+    );
+    expect(res.body.result).toStrictEqual(true);
+    // Wait for all retries to exhaust
+    await new Promise((resolve) => setTimeout(resolve, 12000));
+    const ack = await getAck(recipientID);
+    expect(ack).toBeNull();
+  }, 20000);
+
+  it("no INDEXER_URL should skip validation (ack stays null)", async () => {
+    // INDEXER_URL not set
+    const recipientID = "validation.no-indexer";
+    const res = await postConsignment(
+      recipientID,
+      "no indexer consignment data"
+    );
+    expect(res.body.result).toStrictEqual(true);
+    const ack = await getAck(recipientID);
+    expect(ack).toBeNull();
+  });
+
+  it("auto-ACK cannot be changed by receiver", async () => {
+    process.env.INDEXER_URL = "http://localhost:3002";
+    process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
+      valid: true,
+      failureReason: null,
+    });
+    const recipientID = "validation.no-change";
+    await postConsignment(recipientID, "no change consignment data");
+    await waitForValidation();
+
+    // Try to change ACK via ack.post
+    const res = await request(app)
+      .post("/json-rpc")
+      .send({
+        jsonrpc: jsonrpcVersion,
+        id: "3",
+        method: "ack.post",
+        params: { recipient_id: recipientID, ack: false },
+      })
+      .expect(okStatus);
+    // Should get error -100 (CannotChangeAck)
+    expect(res.body.error).toBeDefined();
+    expect(res.body.error.code).toStrictEqual(-100);
+  });
+
+  it("receiver manual ACK is not overwritten by late validation", async () => {
+    // Don't set INDEXER_URL for initial post (no auto-validation)
+    const recipientID = "validation.manual-first";
+    await postConsignment(recipientID, "manual first consignment data");
+    await waitForValidation();
+
+    // Receiver manually ACKs
+    const ackRes = await request(app)
+      .post("/json-rpc")
+      .send({
+        jsonrpc: jsonrpcVersion,
+        id: "3",
+        method: "ack.post",
+        params: { recipient_id: recipientID, ack: true },
+      })
+      .expect(okStatus);
+    expect(ackRes.body.result).toStrictEqual(true);
+
+    // Verify the manual ACK is preserved
+    const ack = await getAck(recipientID);
+    expect(ack).toStrictEqual(true);
+  });
+});

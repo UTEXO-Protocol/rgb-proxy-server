@@ -1,3 +1,4 @@
+import rgblib from "@utexo/rgb-lib";
 import DatabaseConstructor, { type Database } from "better-sqlite3";
 import { Application, Request, Response } from "express";
 import httpContext from "express-http-context";
@@ -61,6 +62,7 @@ interface ConsignmentGetRes {
   consignment: string;
   txid: string;
   vout?: number;
+  validated?: boolean;
 }
 
 interface Consignment {
@@ -257,11 +259,15 @@ jsonRpcServer.addMethod(
     const fileBuffer = fs.readFileSync(
       path.join(consignmentDir, consignment.filename)
     );
-    return {
+    const result: ConsignmentGetRes = {
       consignment: fileBuffer.toString("base64"),
       txid: consignment.txid,
       vout: consignment.vout,
     };
+    if (consignment.ack !== undefined) {
+      result.validated = consignment.ack;
+    }
+    return result;
   }
 );
 
@@ -293,6 +299,55 @@ jsonRpcServer.addMethod(
          VALUES (?, ?, ?, ?, ?)`
       );
       insert.run(recipientID, fileHash, txid, vout, null);
+
+      const indexerUrl = process.env.INDEXER_URL;
+      const network = process.env.BITCOIN_NETWORK || "Testnet";
+      if (indexerUrl) {
+        const filePath = path.join(consignmentDir, fileHash);
+        const maxRetries = 5;
+        const retryDelay = 2000;
+        const attemptValidation = (attempt: number) => {
+          try {
+            const result = rgblib.validateConsignment(
+              filePath,
+              indexerUrl,
+              network
+            );
+            if (!result.valid && attempt < maxRetries) {
+              logger.info(
+                `Consignment validation for ${recipientID}: invalid on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms...`
+              );
+              setTimeout(() => attemptValidation(attempt + 1), retryDelay);
+              return;
+            }
+            const ackValue = result.valid ? 1 : 0;
+            const update = db.prepare(
+              `UPDATE consignments SET ack = ?
+               WHERE recipient_id = ? AND ack IS NULL`
+            );
+            update.run(ackValue, recipientID);
+            const reason = result.failureReason
+              ? `, reason=${result.failureReason}`
+              : "";
+            logger.info(
+              `Consignment validation for ${recipientID}: valid=${result.valid}${reason} (attempt ${attempt}/${maxRetries})`
+            );
+          } catch (e: unknown) {
+            if (attempt < maxRetries) {
+              logger.info(
+                `Consignment validation error for ${recipientID} on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms...`
+              );
+              setTimeout(() => attemptValidation(attempt + 1), retryDelay);
+              return;
+            }
+            logger.warning(
+              `Consignment validation error for ${recipientID}: ${e}`
+            );
+          }
+        };
+        setImmediate(() => attemptValidation(1));
+      }
+
       return true;
     } catch (e: unknown) {
       if (file) {

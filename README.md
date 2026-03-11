@@ -150,6 +150,35 @@ need to abort the transfer process and start from scratch.
 The consignment or media file for any given recipient ID and the related
 approval cannot be changed once submitted.
 
+## Offline Receiver
+
+The proxy server can optionally validate consignments server-side using
+`@utexo/rgb-lib`, so that offline receivers don't need to be online to
+ACK/NACK transfers.
+
+To enable this feature, set the following environment variables:
+
+```sh
+# Esplora indexer endpoint
+INDEXER_URL='http://localhost:3002'
+
+# Bitcoin network (default: Testnet)
+BITCOIN_NETWORK='Testnet'
+```
+
+When `INDEXER_URL` is set, the server will:
+1. Store the consignment and insert the DB record immediately (ack=null)
+2. Return `true` to the sender right away
+3. Validate the consignment asynchronously via `setImmediate()`
+4. Update the ack field with the validation result
+
+If validation fails due to a resolver error, the ack stays null and the server
+falls back to relay-only mode (the receiver can still manually ACK/NACK).
+
+If the receiver has already manually ACKed/NACKed before the async validation
+completes, the manual value is preserved (the `AND ack IS NULL` guard prevents
+overwriting).
+
 ## Testing
 
 ```sh
