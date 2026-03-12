@@ -321,7 +321,8 @@ jsonRpcServer.addMethod(
                 valid: result.valid,
                 error: result.error ?? null,
                 details: result.details ?? null,
-                failureReason: (result as { failureReason?: string }).failureReason ?? null,
+                failureReason:
+                  (result as { failureReason?: string }).failureReason ?? null,
                 warnings: result.warnings ?? null,
               };
               logger.info(
