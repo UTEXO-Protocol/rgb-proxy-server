@@ -290,7 +290,7 @@ describe("consignment validation", () => {
     process.env.INDEXER_URL = "http://localhost:3002";
     process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
       valid: true,
-      failureReason: null,
+      warnings: [],
     });
     const recipientID = "validation.valid";
     const res = await postConsignment(recipientID, "valid consignment data");
@@ -303,7 +303,8 @@ describe("consignment validation", () => {
     process.env.INDEXER_URL = "http://localhost:3002";
     process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
       valid: false,
-      failureReason: "invalid schema",
+      error: "invalid",
+      details: "invalid schema",
     });
     const recipientID = "validation.invalid";
     const res = await postConsignment(recipientID, "invalid consignment data");
@@ -358,7 +359,7 @@ describe("consignment validation", () => {
     process.env.INDEXER_URL = "http://localhost:3002";
     process.env.MOCK_VALIDATION_RESULT = JSON.stringify({
       valid: true,
-      failureReason: null,
+      warnings: [],
     });
     const recipientID = "validation.no-change";
     await postConsignment(recipientID, "no change consignment data");

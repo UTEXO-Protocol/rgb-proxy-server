@@ -317,6 +317,16 @@ jsonRpcServer.addMethod(
               logger.info(
                 `Consignment validation for ${recipientID}: invalid on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms...`
               );
+              const logResult = {
+                valid: result.valid,
+                error: result.error ?? null,
+                details: result.details ?? null,
+                failureReason: (result as { failureReason?: string }).failureReason ?? null,
+                warnings: result.warnings ?? null,
+              };
+              logger.info(
+                `Consignment validation result: ${JSON.stringify(logResult)}`
+              );
               setTimeout(() => attemptValidation(attempt + 1), retryDelay);
               return;
             }
@@ -326,9 +336,10 @@ jsonRpcServer.addMethod(
                WHERE recipient_id = ? AND ack IS NULL`
             );
             update.run(ackValue, recipientID);
-            const reason = result.failureReason
-              ? `, reason=${result.failureReason}`
-              : "";
+            const reason =
+              !result.valid && result.details
+                ? `, reason=${result.details}`
+                : "";
             logger.info(
               `Consignment validation for ${recipientID}: valid=${result.valid}${reason} (attempt ${attempt}/${maxRetries})`
             );
