@@ -57,6 +57,7 @@
     "winston": "^3.14.2"
   },
   "optionalDependencies": {
-    "@utexo/rgb-lib-linux-x64": "^0.3.0-beta.14"
+    "@utexo/rgb-lib-linux-x64": "^0.3.0-beta.14",
+    "@utexo/rgb-lib-darwin-arm64": "0.3.0-beta.14"
   }
 }

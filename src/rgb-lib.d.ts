@@ -1,7 +1,9 @@
 declare module "@utexo/rgb-lib" {
   interface ValidationResult {
     valid: boolean;
-    failureReason: string | null;
+    warnings?: string[];
+    error?: "invalid" | "resolver";
+    details?: string;
   }
 
   interface RgbLib {
