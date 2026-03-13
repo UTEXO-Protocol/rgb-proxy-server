@@ -306,7 +306,35 @@ jsonRpcServer.addMethod(
         const filePath = path.join(consignmentDir, fileHash);
         const maxRetries = 5;
         const retryDelay = 2000;
-        const attemptValidation = (attempt: number) => {
+
+        const tryOffchainFirst = () => {
+          try {
+            const result = rgblib.validateConsignmentOffchain(
+              filePath,
+              txid,
+              indexerUrl,
+              network
+            );
+            if (result.valid) {
+              const update = db.prepare(
+                `UPDATE consignments SET ack = ?
+                 WHERE recipient_id = ? AND ack IS NULL`
+              );
+              update.run(1, recipientID);
+              logger.info(
+                `Consignment validation for ${recipientID}: valid=true (offchain)`
+              );
+              return;
+            }
+          } catch (e: unknown) {
+            logger.info(
+              `Consignment validation offchain failed for ${recipientID}, falling back to indexer: ${e}`
+            );
+          }
+          attemptIndexerValidation(1);
+        };
+
+        const attemptIndexerValidation = (attempt: number) => {
           try {
             const result = rgblib.validateConsignment(
               filePath,
@@ -328,7 +356,7 @@ jsonRpcServer.addMethod(
               logger.info(
                 `Consignment validation result: ${JSON.stringify(logResult)}`
               );
-              setTimeout(() => attemptValidation(attempt + 1), retryDelay);
+              setTimeout(() => attemptIndexerValidation(attempt + 1), retryDelay);
               return;
             }
             const ackValue = result.valid ? 1 : 0;
@@ -342,14 +370,14 @@ jsonRpcServer.addMethod(
                 ? `, reason=${result.details}`
                 : "";
             logger.info(
-              `Consignment validation for ${recipientID}: valid=${result.valid}${reason} (attempt ${attempt}/${maxRetries})`
+              `Consignment validation for ${recipientID}: valid=${result.valid}${reason} (indexer, attempt ${attempt}/${maxRetries})`
             );
           } catch (e: unknown) {
             if (attempt < maxRetries) {
               logger.info(
                 `Consignment validation error for ${recipientID} on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms...`
               );
-              setTimeout(() => attemptValidation(attempt + 1), retryDelay);
+              setTimeout(() => attemptIndexerValidation(attempt + 1), retryDelay);
               return;
             }
             logger.warning(
@@ -357,7 +385,8 @@ jsonRpcServer.addMethod(
             );
           }
         };
-        setImmediate(() => attemptValidation(1));
+
+        setImmediate(() => tryOffchainFirst());
       }
 
       return true;

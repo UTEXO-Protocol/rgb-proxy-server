@@ -12,6 +12,12 @@ declare module "@utexo/rgb-lib" {
       indexerUrl: string,
       network: string
     ): ValidationResult;
+    validateConsignmentOffchain(
+      filePath: string,
+      txid: string,
+      indexerUrl: string,
+      network: string
+    ): ValidationResult;
   }
 
   const rgblib: RgbLib;
