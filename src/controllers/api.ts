@@ -325,6 +325,21 @@ jsonRpcServer.addMethod(
                 `Consignment validation for ${recipientID}: valid=true (offchain)`
               );
               return;
+            } else {
+              const logResult = {
+                valid: result.valid,
+                error: result.error ?? null,
+                details: result.details ?? null,
+                failureReason:
+                  (result as { failureReason?: string }).failureReason ?? null,
+                warnings: result.warnings ?? null,
+              };
+              logger.info(
+                `Consignment validation for ${recipientID}: invalid (offchain), falling back to indexer`
+              );
+              logger.info(
+                `Consignment validation result: ${JSON.stringify(logResult)}`
+              );
             }
           } catch (e: unknown) {
             logger.info(
