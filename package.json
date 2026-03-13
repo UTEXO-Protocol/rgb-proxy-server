@@ -44,7 +44,7 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "@utexo/rgb-lib": "^0.3.0-beta.14.vss",
+    "@utexo/rgb-lib": "0.3.0-beta.14.vss",
     "better-sqlite3": "^11.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -57,7 +57,7 @@
     "winston": "^3.14.2"
   },
   "optionalDependencies": {
-    "@utexo/rgb-lib-linux-x64": "^0.3.0-beta.14.vss",
+    "@utexo/rgb-lib-linux-x64": "0.3.0-beta.14.vss",
     "@utexo/rgb-lib-darwin-arm64": "0.3.0-beta.14.vss"
   }
 }
