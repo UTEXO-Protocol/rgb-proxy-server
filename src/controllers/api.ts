@@ -356,7 +356,10 @@ jsonRpcServer.addMethod(
               logger.info(
                 `Consignment validation result: ${JSON.stringify(logResult)}`
               );
-              setTimeout(() => attemptIndexerValidation(attempt + 1), retryDelay);
+              setTimeout(
+                () => attemptIndexerValidation(attempt + 1),
+                retryDelay
+              );
               return;
             }
             const ackValue = result.valid ? 1 : 0;
@@ -377,7 +380,10 @@ jsonRpcServer.addMethod(
               logger.info(
                 `Consignment validation error for ${recipientID} on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms...`
               );
-              setTimeout(() => attemptIndexerValidation(attempt + 1), retryDelay);
+              setTimeout(
+                () => attemptIndexerValidation(attempt + 1),
+                retryDelay
+              );
               return;
             }
             logger.warning(
